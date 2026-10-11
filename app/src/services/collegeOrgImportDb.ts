@@ -70,8 +70,9 @@ async function attachImportedPrograms(rows: CollegeOrgImportPreviewRow[]): Promi
     );
     if (!college) continue;
     const programId = await ensureProgram(college.id, row.programName);
+    const wantedSlug = row.organizationCode.trim().toLowerCase();
     const org = college.organizations.find(
-      (item) => item.name.trim().toLowerCase() === row.organizationName.trim().toLowerCase(),
+      (item) => (item.slug ?? "").trim().toLowerCase() === wantedSlug,
     );
     if (!org) {
       const supabase = getSupabase();
@@ -79,7 +80,7 @@ async function attachImportedPrograms(rows: CollegeOrgImportPreviewRow[]): Promi
         .from("organizations")
         .select("id")
         .eq("college_id", college.id)
-        .ilike("name", row.organizationName.trim())
+        .ilike("slug", row.organizationCode.trim())
         .maybeSingle();
       if (error || !data?.id) continue;
       await assignOrganizationToProgram(data.id as string, programId, row.organizationCode);

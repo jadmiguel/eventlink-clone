@@ -94,6 +94,7 @@ const lastImportSummary = ref<string | null>(null);
 
 const previewBlockers = computed(() => collegeOrgImportHasBlockers(previewRows.value));
 const previewInvalidCount = computed(() => previewRows.value.filter((r) => r.status === "Invalid").length);
+const previewHasMessages = computed(() => previewRows.value.some((row) => row.message.trim()));
 
 function triggerUpload() {
   fileInput.value?.click();
@@ -397,7 +398,7 @@ async function removeOrg(id: string) {
               <th class="py-2 pr-3">Program</th>
               <th class="py-2 pr-3">Organization</th>
               <th class="py-2 pr-3">Organization Code</th>
-              <th class="py-2">Message</th>
+              <th v-if="previewHasMessages" class="py-2">Message</th>
             </tr>
           </thead>
           <tbody>
@@ -407,7 +408,7 @@ async function removeOrg(id: string) {
               <td class="py-2 pr-3">{{ row.programName || "—" }}</td>
               <td class="py-2 pr-3">{{ row.organizationName || "—" }}</td>
               <td class="py-2 pr-3 font-mono text-xs">{{ row.organizationCode || "—" }}</td>
-              <td class="py-2 text-xs text-gray-600">{{ row.message }}</td>
+              <td v-if="previewHasMessages" class="py-2 text-xs text-gray-600">{{ row.message || "—" }}</td>
             </tr>
           </tbody>
         </table>
