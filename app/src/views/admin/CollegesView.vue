@@ -34,7 +34,6 @@ import {
   validateCollegeOrgImportRows,
   type CollegeOrgImportPreviewRow,
 } from "@/services/collegeOrgImportParser";
-import StatusBadge from "@/components/portal/StatusBadge.vue";
 import PortalListSkeleton from "@/components/portal/PortalListSkeleton.vue";
 import { useUiStore } from "@/stores/ui";
 import { toUserFacingError } from "@/utils/userFacingError";
@@ -92,13 +91,6 @@ const previewRows = ref<CollegeOrgImportPreviewRow[]>([]);
 const parsing = ref(false);
 const importing = ref(false);
 const lastImportSummary = ref<string | null>(null);
-
-function statusTone(status: CollegeOrgImportPreviewRow["status"]) {
-  if (status === "Valid") return "success" as const;
-  if (status === "Duplicate") return "info" as const;
-  if (status === "Warning") return "warning" as const;
-  return "danger" as const;
-}
 
 const previewBlockers = computed(() => collegeOrgImportHasBlockers(previewRows.value));
 const previewInvalidCount = computed(() => previewRows.value.filter((r) => r.status === "Invalid").length);
@@ -405,7 +397,6 @@ async function removeOrg(id: string) {
               <th class="py-2 pr-3">Program</th>
               <th class="py-2 pr-3">Organization</th>
               <th class="py-2 pr-3">Organization Code</th>
-              <th class="py-2 pr-3">Status</th>
               <th class="py-2">Message</th>
             </tr>
           </thead>
@@ -416,9 +407,6 @@ async function removeOrg(id: string) {
               <td class="py-2 pr-3">{{ row.programName || "—" }}</td>
               <td class="py-2 pr-3">{{ row.organizationName || "—" }}</td>
               <td class="py-2 pr-3 font-mono text-xs">{{ row.organizationCode || "—" }}</td>
-              <td class="py-2 pr-3">
-                <StatusBadge :label="row.status" :tone="statusTone(row.status)" />
-              </td>
               <td class="py-2 text-xs text-gray-600">{{ row.message }}</td>
             </tr>
           </tbody>
