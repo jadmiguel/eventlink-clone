@@ -43,6 +43,7 @@ export async function fetchStaffImportCatalog(): Promise<StaffImportCatalog> {
       name: c.name,
       code: c.code,
       organizations: c.organizations.map((o) => ({ id: o.id, name: o.name, slug: o.slug })),
+      programs: c.programs.map((program) => ({ id: program.id, name: program.name })),
     })),
     portalUsers: ((users ?? []) as AdminPortalUserRow[]).map((u) => ({
       email: u.email ?? "",
@@ -70,6 +71,7 @@ export async function importStaffAccounts(
         full_name: row.fullName,
         email: row.email,
         college: row.college,
+        program: row.program,
         organization: row.organization,
         position: row.position,
       })),

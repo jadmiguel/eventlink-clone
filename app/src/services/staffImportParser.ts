@@ -12,6 +12,7 @@ export type StaffImportRow = {
   fullName: string;
   email: string;
   college: string;
+  program: string;
   organization: string;
   position: string;
 };
@@ -28,12 +29,13 @@ export type StaffImportCatalog = {
     name: string;
     code: string | null;
     organizations: Array<{ id: string; name: string; slug: string | null }>;
+    programs: Array<{ id: string; name: string }>;
   }>;
   portalUsers: Array<{ email: string; role: string; college: string }>;
   orgAssignments: Array<{ organizationId: string; role: string; displayName: string }>;
 };
 
-type HeaderField = "full_name" | "email" | "college" | "organization" | "position";
+type HeaderField = "full_name" | "email" | "college" | "program" | "organization" | "position";
 
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -70,13 +72,10 @@ function headerKey(h: string): HeaderField | null {
   if (["full_name", "fullname", "name"].includes(x)) return "full_name";
   if (["email", "e_mail", "e-mail"].includes(x)) return "email";
   if (["college", "college_name"].includes(x)) return "college";
+  if (["program", "program_name"].includes(x)) return "program";
   if (["organization", "organization_name", "org"].includes(x)) return "organization";
   if (["position", "title"].includes(x)) return "position";
   return null;
-}
-
-function normalizeOrgKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 export function staffRoleLabel(kind: StaffImportKind): string {
@@ -94,7 +93,7 @@ export function isStaffExampleRow(row: StaffImportRow): boolean {
 function requiredHeaders(kind: StaffImportKind): HeaderField[] {
   return kind === "dean"
     ? ["full_name", "email", "college", "position"]
-    : ["full_name", "email", "college", "organization", "position"];
+    : ["full_name", "email", "college", "program", "position"];
 }
 
 function rowFromCells(
@@ -107,10 +106,11 @@ function rowFromCells(
   const fullName = (obj.full_name ?? "").trim();
   const email = (obj.email ?? "").trim();
   const college = (obj.college ?? "").trim();
+  const program = (obj.program ?? "").trim();
   const organization = (obj.organization ?? "").trim();
   const position = (obj.position ?? "").trim();
-  if (!fullName && !email && !college && !organization) return null;
-  return { row: rowIndex, fullName, email, college, organization, position };
+  if (!fullName && !email && !college && !program && !organization) return null;
+  return { row: rowIndex, fullName, email, college, program, organization, position };
 }
 
 function parseGrid(rows: string[][], kind: StaffImportKind): StaffImportRow[] {
@@ -124,7 +124,7 @@ function parseGrid(rows: string[][], kind: StaffImportKind): StaffImportRow[] {
     throw new Error(
       kind === "dean"
         ? "Dean import columns must be exactly: full_name, email, college, position."
-        : "Adviser import columns must be exactly: full_name, email, college, organization, position.",
+        : "Adviser import columns must be exactly: full_name, email, college, program, position.",
     );
   }
   rows[0]!.forEach((value, index) => {
@@ -137,7 +137,7 @@ function parseGrid(rows: string[][], kind: StaffImportKind): StaffImportRow[] {
     throw new Error(
       kind === "dean"
         ? "The file must include full_name, email, college, and position."
-        : "The file must include full_name, email, college, organization, and position.",
+        : "The file must include full_name, email, college, program, and position.",
     );
   }
   const parsed: StaffImportRow[] = [];
@@ -176,12 +176,12 @@ export function downloadStaffTemplate(kind: StaffImportKind): void {
     return;
   }
   downloadCsv("eventlink-adviser-template.csv", [
-    ["full_name", "email", "college", "organization", "position"],
+    ["full_name", "email", "college", "program", "position"],
     [
       "EXAMPLE Adviser",
       "example.adviser@isu.edu.ph",
       "EXAMPLE College of Computing Studies",
-      "EXAMPLE ICT Society",
+      "EXAMPLE Information Technology",
       "Program Adviser",
     ],
   ]);
@@ -207,12 +207,8 @@ export function validateStaffImportRows(
       .filter((u) => u.role === "dean" && u.college.trim())
       .map((u) => [u.college.trim().toLowerCase(), u]),
   );
-  const adviserByOrg = new Map(
-    catalog.orgAssignments.filter((a) => a.role === "adviser").map((a) => [a.organizationId, a]),
-  );
   const seenEmail = new Set<string>();
   const seenCollege = new Set<string>();
-  const seenOrg = new Set<string>();
   const out: StaffImportPreviewRow[] = [];
 
   for (const row of rows) {
@@ -229,9 +225,9 @@ export function validateStaffImportRows(
     } else if (!row.college.trim()) {
       preview.status = "Invalid";
       preview.message = "College is required.";
-    } else if (kind === "adviser" && !row.organization.trim()) {
+    } else if (kind === "adviser" && !row.program.trim()) {
       preview.status = "Invalid";
-      preview.message = "Organization is required.";
+      preview.message = "Program is required.";
     } else if (!row.position.trim()) {
       preview.status = "Invalid";
       preview.message = "Position is required.";
@@ -266,39 +262,19 @@ export function validateStaffImportRows(
             preview.message = `Will invite this user as Dean of ${college.name}.`;
           }
         } else {
-          const orgKey = row.organization.trim().toLowerCase();
-          const orgMatches = college.organizations.filter(
-            (o) =>
-              o.name.trim().toLowerCase() === orgKey ||
-              (o.slug ?? "").toLowerCase() === orgKey ||
-              normalizeOrgKey(o.name) === normalizeOrgKey(row.organization),
+          const programKey = row.program.trim().toLowerCase();
+          const programMatches = college.programs.filter(
+            (program) => program.name.trim().toLowerCase() === programKey,
           );
-          const inOtherCollege = catalog.colleges.some(
-            (c) =>
-              c.id !== college.id &&
-              c.organizations.some(
-                (o) => o.name.trim().toLowerCase() === orgKey || (o.slug ?? "").toLowerCase() === orgKey,
-              ),
-          );
-          if (!orgMatches.length && inOtherCollege) {
+          if (!programMatches.length) {
             preview.status = "Invalid";
-            preview.message = `Organization "${row.organization}" does not belong to the selected college.`;
-          } else if (!orgMatches.length) {
+            preview.message = `Program "${row.program}" was not found under "${college.name}".`;
+          } else if (programMatches.length > 1) {
             preview.status = "Invalid";
-            preview.message = `Organization "${row.organization}" was not found under "${college.name}".`;
-          } else if (orgMatches.length > 1) {
-            preview.status = "Invalid";
-            preview.message = `Multiple organizations match "${row.organization}" in "${college.name}".`;
-          } else if (seenOrg.has(orgMatches[0]!.id)) {
-            preview.status = "Invalid";
-            preview.message = `Duplicate row: organization "${orgMatches[0]!.name}" already has an Adviser in this file.`;
-          } else if (adviserByOrg.has(orgMatches[0]!.id)) {
-            preview.status = "Duplicate";
-            preview.message = `Organization "${orgMatches[0]!.name}" already has a registered Adviser.`;
+            preview.message = `Multiple programs match "${row.program}" in "${college.name}".`;
           } else {
-            seenOrg.add(orgMatches[0]!.id);
             preview.status = "Valid";
-            preview.message = `Will invite this user as Adviser of ${orgMatches[0]!.name}.`;
+            preview.message = `Will invite this user as Adviser of ${programMatches[0]!.name}.`;
           }
         }
       }

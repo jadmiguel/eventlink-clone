@@ -383,7 +383,7 @@ async function toggleArchive(row: MasterStudent) {
         </div>
         <div>
           <label class="mb-1 block text-xs font-semibold text-slate-500">Email</label>
-          <input v-model="editForm.email" type="email" class="portal-input" />
+          <input v-model="editForm.email" type="text" class="portal-input" />
         </div>
       </div>
       <template #footer>

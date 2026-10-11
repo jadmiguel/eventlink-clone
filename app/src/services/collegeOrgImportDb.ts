@@ -1,4 +1,5 @@
 import { getSupabase } from "@/lib/supabase";
+import { assignOrganizationToProgram, ensureProgram, fetchCollegesWithOrganizations } from "@/services/organizationsDb";
 import type { CollegeOrgImportPreviewRow } from "@/services/collegeOrgImportParser";
 
 export type CollegeOrgImportResult = {
@@ -45,6 +46,8 @@ export async function importCollegesOrganizations(
     throw new Error(payload.error || "Import failed. No changes were applied.");
   }
 
+  await attachImportedPrograms(rows);
+
   return {
     ok: true,
     collegesCreated: payload.colleges_created ?? 0,
@@ -52,4 +55,37 @@ export async function importCollegesOrganizations(
     reused: payload.reused ?? 0,
     failed: payload.failed ?? 0,
   };
+}
+
+async function attachImportedPrograms(rows: CollegeOrgImportPreviewRow[]): Promise<void> {
+  const pending = rows.filter(
+    (row) => row.programName.trim() && row.status !== "Invalid",
+  );
+  if (!pending.length) return;
+
+  const colleges = await fetchCollegesWithOrganizations();
+  for (const row of pending) {
+    const college = colleges.find(
+      (item) => item.name.trim().toLowerCase() === row.collegeName.trim().toLowerCase(),
+    );
+    if (!college) continue;
+    const programId = await ensureProgram(college.id, row.programName);
+    const org = college.organizations.find(
+      (item) => item.name.trim().toLowerCase() === row.organizationName.trim().toLowerCase(),
+    );
+    if (!org) {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("organizations")
+        .select("id")
+        .eq("college_id", college.id)
+        .ilike("name", row.organizationName.trim())
+        .maybeSingle();
+      if (error || !data?.id) continue;
+      await assignOrganizationToProgram(data.id as string, programId);
+      continue;
+    }
+    if (org.program_id === programId) continue;
+    await assignOrganizationToProgram(org.id, programId);
+  }
 }

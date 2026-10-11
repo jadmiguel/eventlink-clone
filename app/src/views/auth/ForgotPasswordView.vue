@@ -63,7 +63,7 @@ async function submit() {
               <input
                 id="remail"
                 v-model="email"
-                type="email"
+                type="text"
                 class="portal-input pl-10"
                 placeholder="you@university.edu"
                 required

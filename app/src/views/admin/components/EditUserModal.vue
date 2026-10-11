@@ -54,6 +54,7 @@ const role = ref<EditableRole>("adviser");
 const name = ref("");
 const email = ref("");
 const collegeId = ref("");
+const programId = ref("");
 const organizationId = ref("");
 
 const roleOptions: Array<{ label: string; value: EditableRole }> = [
@@ -74,11 +75,14 @@ const roleOptions: Array<{ label: string; value: EditableRole }> = [
 const requiresCollege = computed(
   () => role.value === "student_officer" || role.value === "adviser" || role.value === "dean",
 );
-const requiresOrganization = computed(
+const requiresProgram = computed(
   () => role.value === "student_officer" || role.value === "adviser",
 );
+const requiresOrganization = computed(() => role.value === "student_officer");
+const selectedCollegeRow = computed(() => colleges.value.find((c) => c.id === collegeId.value) ?? null);
+const programOptions = computed(() => selectedCollegeRow.value?.programs ?? []);
 const organizationOptions = computed(() => {
-  const selected = colleges.value.find((c) => c.id === collegeId.value);
+  const selected = programOptions.value.find((program) => program.id === programId.value);
   return selected?.organizations ?? [];
 });
 const officerByOrgId = computed(() => officerNamesByOrganizationId(orgAssignments.value));
@@ -110,6 +114,7 @@ function resetForm() {
   name.value = props.user.name;
   email.value = props.user.email.trim() === "—" ? "" : props.user.email;
   collegeId.value = "";
+  programId.value = "";
   organizationId.value = "";
 }
 
@@ -122,11 +127,23 @@ function prefillCollegeAndOrganizationByName() {
   if (!selectedCollege) return;
   collegeId.value = selectedCollege.id;
 
+  const target = props.user.program.trim().toLowerCase();
+  const matchedProgram = selectedCollege.programs.find((program) => program.name.trim().toLowerCase() === target);
+  if (role.value === "adviser") {
+    if (matchedProgram) programId.value = matchedProgram.id;
+    return;
+  }
   if (!requiresOrganization.value) return;
-  const targetOrg = props.user.program.trim().toLowerCase();
-  const selectedOrg = selectedCollege.organizations.find((o) => o.name.trim().toLowerCase() === targetOrg);
+
+  if (matchedProgram) programId.value = matchedProgram.id;
+  const selectedOrg =
+    selectedCollege.organizations.find((org) => org.name.trim().toLowerCase() === target) ??
+    (matchedProgram
+      ? matchedProgram.organizations.find((org) => org.name.trim().toLowerCase() === target)
+      : undefined);
   if (!selectedOrg) return;
   organizationId.value = selectedOrg.id;
+  if (selectedOrg.program_id) programId.value = selectedOrg.program_id;
 }
 
 watch(
@@ -158,16 +175,22 @@ watch(
 watch(role, () => {
   if (!requiresCollege.value) {
     collegeId.value = "";
+    programId.value = "";
     organizationId.value = "";
     return;
   }
-  if (!requiresOrganization.value) {
-    organizationId.value = "";
-  }
+  if (!requiresProgram.value) programId.value = "";
+  if (!requiresOrganization.value) organizationId.value = "";
 });
 
 watch(collegeId, () => {
-  if (!organizationOptions.value.some((x) => x.id === organizationId.value)) {
+  if (!programOptions.value.some((program) => program.id === programId.value)) {
+    programId.value = "";
+  }
+});
+
+watch(programId, () => {
+  if (!organizationOptions.value.some((org) => org.id === organizationId.value)) {
     organizationId.value = "";
   }
 });
@@ -195,6 +218,10 @@ async function submitEdit(e: Event) {
     ui.pushToast("Missing fields", "Select a college for this role.", "error");
     return;
   }
+  if (requiresProgram.value && !programId.value) {
+    ui.pushToast("Missing fields", "Select a program for this role.", "error");
+    return;
+  }
   if (requiresOrganization.value && !organizationId.value) {
     ui.pushToast("Missing fields", "Select an organization for this role.", "error");
     return;
@@ -208,6 +235,7 @@ async function submitEdit(e: Event) {
       email: email.value.trim(),
       displayName: name.value.trim(),
       collegeId: collegeId.value || null,
+      programId: programId.value || null,
       organizationId: organizationId.value || null,
     });
     const emailChanged = email.value.trim().toLowerCase() !== props.user.email.trim().toLowerCase();
@@ -253,7 +281,7 @@ async function submitEdit(e: Event) {
         <div class="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
           <p class="font-semibold">Update account assignment</p>
           <p class="mt-1 text-sky-900/90">
-            Use this to fix role mapping, email, and college or organization assignment.
+            A dean stays on a college. An adviser stays on a program. A student officer stays on an organization.
           </p>
         </div>
 
@@ -307,6 +335,23 @@ async function submitEdit(e: Event) {
             <p v-if="loadingOptions" class="mt-1 text-xs text-slate-500">Loading colleges...</p>
           </div>
 
+          <div v-if="requiresProgram">
+            <label class="mb-2 block text-sm font-medium text-gray-700">
+              Program <span class="text-red-500">*</span>
+            </label>
+            <select
+              v-model="programId"
+              required
+              :disabled="!collegeId"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            >
+              <option value="">{{ collegeId ? "Select program" : "Select college first" }}</option>
+              <option v-for="program in programOptions" :key="program.id" :value="program.id">
+                {{ program.name }}
+              </option>
+            </select>
+          </div>
+
           <div v-if="requiresOrganization">
             <label class="mb-2 block text-sm font-medium text-gray-700">
               Organization <span class="text-red-500">*</span>
@@ -314,10 +359,10 @@ async function submitEdit(e: Event) {
             <select
               v-model="organizationId"
               required
-              :disabled="!collegeId"
+              :disabled="!programId"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
             >
-              <option value="">{{ collegeId ? "Select organization" : "Select college first" }}</option>
+              <option value="">{{ programId ? "Select organization" : "Select program first" }}</option>
               <option v-for="org in organizationOptions" :key="org.id" :value="org.id">
                 {{ organizationOptionLabel(org.id, org.name) }}
               </option>
@@ -342,7 +387,7 @@ async function submitEdit(e: Event) {
             </label>
             <input
               v-model="email"
-              type="email"
+              type="text"
               required
               :placeholder="requireIsuEmail ? 'user@isu.edu.ph' : 'user@email.com'"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"

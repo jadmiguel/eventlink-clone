@@ -21,8 +21,10 @@ export type AnalyticsPeriod = {
 };
 
 export type AnalyticsScopeOptions = {
-  /** profiles.college_id — required for adviser/dean */
+  /** profiles.college_id — required for dean */
   collegeId?: string | null;
+  /** profiles.program_id — required for adviser */
+  programId?: string | null;
   /** profiles.organization_id — required for student_officer (preferred) */
   organizationId?: string | null;
   /** auth user id — fallback for student_officer when org is missing */
@@ -415,6 +417,7 @@ export async function fetchAnalyticsOverview(
   if (!isSupabaseConfigured) return emptyOverview();
 
   const collegeId = options.collegeId?.trim() || null;
+  const programId = options.programId?.trim() || null;
   const organizationId = options.organizationId?.trim() || null;
   const userId = options.userId?.trim() || null;
   const period = options.period ?? currentAnalyticsPeriod();
@@ -426,7 +429,7 @@ export async function fetchAnalyticsOverview(
   if (scope === "dean" && !collegeId) {
     return emptyOverview();
   }
-  if (scope === "adviser" && !collegeId && !organizationId) {
+  if (scope === "adviser" && !programId && !organizationId) {
     return emptyOverview();
   }
   if (scope === "student_officer" && !organizationId && !userId) {
@@ -437,10 +440,10 @@ export async function fetchAnalyticsOverview(
   const sinceIso = since.toISOString();
   const untilIso = until.toISOString();
 
-  const useInnerOrg = scope === "dean" || (scope === "adviser" && !!collegeId);
+  const useInnerOrg = scope === "dean" || (scope === "adviser" && !!programId);
   const orgSelect = useInnerOrg
-    ? "organizations!inner(name, college_id)"
-    : "organizations(name, college_id)";
+    ? "organizations!inner(name, college_id, program_id)"
+    : "organizations(name, college_id, program_id)";
 
   let resourceRequestIds: string[] | null = null;
   if (isResourceOfficeScope(scope)) {
@@ -449,6 +452,7 @@ export async function fetchAnalyticsOverview(
       const overview = emptyOverview();
       const pendingCount = await countPendingForRole(scope as AppRole, userId ?? "", {
         collegeId,
+        programId,
         organizationId,
       });
       overview.totals.pendingCount = pendingCount;
@@ -480,7 +484,7 @@ export async function fetchAnalyticsOverview(
     } else if (scope === "dean") {
       query = query.eq("organizations.college_id", collegeId!);
     } else if (scope === "adviser") {
-      if (collegeId) query = query.eq("organizations.college_id", collegeId);
+      if (programId) query = query.eq("organizations.program_id", programId);
       else if (organizationId) query = query.eq("organization_id", organizationId);
     }
     if (idChunk?.length) query = query.in("id", idChunk);

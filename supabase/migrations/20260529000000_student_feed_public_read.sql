@@ -1,4 +1,6 @@
--- Allow /student (anon) to resolve organization names on feed posts
+-- Allow /student (anon) to resolve organization names on feed posts.
+-- 20260528600000 already creates this policy for anon and authenticated.
+drop policy if exists organizations_select_public on public.organizations;
 create policy organizations_select_public on public.organizations
   for select using (true);
 

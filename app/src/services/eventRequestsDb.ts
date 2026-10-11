@@ -332,7 +332,7 @@ const EVENT_REQUEST_LIST_SELECT = `
   cancellation_reason, cancelled_at, cancelled_by,
   posted_at, calendar_posted_at, student_post_caption, student_post_image_path,
   created_at, updated_at,
-  organizations ( id, name, college_id ),
+  organizations ( id, name, college_id, program_id ),
   profiles!event_requests_submitted_by_fkey ( display_name ),
   event_request_equipment ( quantity_requested, equipment ( id, name ) ),
   event_request_resource_assignments (
@@ -350,7 +350,7 @@ const EVENT_REQUEST_LIST_SELECT_INNER_ORG = `
   cancellation_reason, cancelled_at, cancelled_by,
   posted_at, calendar_posted_at, student_post_caption, student_post_image_path,
   created_at, updated_at,
-  organizations!inner ( id, name, college_id ),
+  organizations!inner ( id, name, college_id, program_id ),
   profiles!event_requests_submitted_by_fkey ( display_name ),
   event_request_equipment ( quantity_requested, equipment ( id, name ) ),
   event_request_resource_assignments (
@@ -368,7 +368,7 @@ const EVENT_REQUEST_LIST_FALLBACK_SELECT = `
   cancellation_reason, cancelled_at, cancelled_by,
   posted_at, calendar_posted_at, student_post_caption, student_post_image_path,
   created_at, updated_at,
-  organizations ( id, name, college_id ),
+  organizations ( id, name, college_id, program_id ),
   event_request_equipment ( quantity_requested, equipment ( id, name ) ),
   event_request_resource_assignments (
     id, resource_kind, venue_id, equipment_id, resource_name, quantity,
@@ -384,7 +384,7 @@ const EVENT_REQUEST_LIST_BARE_SELECT = `
   cancellation_reason, cancelled_at, cancelled_by,
   posted_at, calendar_posted_at, student_post_caption, student_post_image_path,
   created_at, updated_at,
-  organizations ( id, name, college_id ),
+  organizations ( id, name, college_id, program_id ),
   event_request_equipment ( quantity_requested, equipment ( id, name ) )
 `;
 
@@ -441,6 +441,7 @@ export type PortalEventLoadScope = {
   role: AppRole;
   userId: string;
   collegeId?: string | null;
+  programId?: string | null;
   organizationId?: string | null;
 };
 
@@ -486,7 +487,7 @@ async function runEventRequestListQuery(select: string, apply: (q: any) => any):
 export async function fetchPortalEventRequestsForRole(
   scope: PortalEventLoadScope,
 ): Promise<EventRequestRow[]> {
-  const { role, userId, collegeId, organizationId } = scope;
+  const { role, userId, collegeId, programId, organizationId } = scope;
 
   switch (role) {
     case "student_officer": {
@@ -506,6 +507,11 @@ export async function fetchPortalEventRequestsForRole(
         ),
       );
     case "adviser": {
+      if (programId) {
+        return runEventRequestListQuery(EVENT_REQUEST_LIST_SELECT_INNER_ORG, (q) =>
+          q.eq("organizations.program_id", programId),
+        );
+      }
       if (!organizationId) return [];
       return runEventRequestListQuery(EVENT_REQUEST_LIST_SELECT, (q) =>
         q.eq("organization_id", organizationId),
@@ -706,7 +712,7 @@ async function getRow(id: string): Promise<EventRequestRow> {
   const { data, error } = await supabase
     .from("event_requests")
     .select(
-      `*, organizations ( id, name, college_id ), event_request_equipment ( quantity_requested, equipment ( id, name ) ), event_request_resource_assignments ( id, resource_kind, venue_id, equipment_id, resource_name, quantity, assigned_office, status, decline_reason )`,
+      `*, organizations ( id, name, college_id, program_id ), event_request_equipment ( quantity_requested, equipment ( id, name ) ), event_request_resource_assignments ( id, resource_kind, venue_id, equipment_id, resource_name, quantity, assigned_office, status, decline_reason )`,
     )
     .eq("id", id)
     .single();
@@ -1105,7 +1111,7 @@ export function isPendingForRole(
   r: EventRequestRow,
   role: AppRole,
   userId: string,
-  scope?: { collegeId?: string | null; organizationId?: string | null },
+  scope?: { collegeId?: string | null; programId?: string | null; organizationId?: string | null },
 ): boolean {
   if (r.deleted_at) return false;
   const office = appRoleToResourceOffice(role);
@@ -1147,12 +1153,11 @@ export function isPendingForRole(
     return hasPendingAssignmentForOffice(r, office);
   }
   if (role === "adviser") {
-    if (!scope?.organizationId) return false;
-    return (
-      r.status === "pending" &&
-      r.current_step === "adviser" &&
-      r.organization_id === scope.organizationId
-    );
+    const inScope = scope?.programId
+      ? (r.organizations?.program_id ?? null) === scope.programId
+      : !!scope?.organizationId && r.organization_id === scope.organizationId;
+    if (!inScope) return false;
+    return r.status === "pending" && r.current_step === "adviser";
   }
   if (role === "dean") {
     if (!scope?.collegeId) return false;
@@ -1171,7 +1176,7 @@ export function filterPendingForRole(
   rows: EventRequestRow[],
   role: AppRole,
   userId: string,
-  scope?: { collegeId?: string | null; organizationId?: string | null },
+  scope?: { collegeId?: string | null; programId?: string | null; organizationId?: string | null },
 ): EventRequestRow[] {
   return rows.filter((r) => isPendingForRole(r, role, userId, scope));
 }
@@ -1181,7 +1186,7 @@ export function getPendingEventsForCurrentUser(
   rows: EventRequestRow[],
   role: AppRole,
   userId: string,
-  scope?: { collegeId?: string | null; organizationId?: string | null },
+  scope?: { collegeId?: string | null; programId?: string | null; organizationId?: string | null },
 ): EventRequestRow[] {
   return filterPendingForRole(rows, role, userId, scope);
 }
@@ -1233,7 +1238,7 @@ async function countPendingResourceOffice(office: ResourceOffice): Promise<numbe
 export async function countPendingForRole(
   role: AppRole,
   userId: string,
-  scope?: { collegeId?: string | null; organizationId?: string | null },
+  scope?: { collegeId?: string | null; programId?: string | null; organizationId?: string | null },
 ): Promise<number> {
   if (role === "infirmary" || role === "nstp") return 0;
 
@@ -1271,6 +1276,18 @@ export async function countPendingForRole(
   }
 
   if (role === "adviser") {
+    if (scope?.programId) {
+      const supabase = getSupabase();
+      const { count, error } = await supabase
+        .from("event_requests")
+        .select("id, organizations!inner(program_id)", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .eq("status", "pending")
+        .eq("current_step", "adviser")
+        .eq("organizations.program_id", scope.programId);
+      if (error) throw error;
+      return count ?? 0;
+    }
     if (!scope?.organizationId) return 0;
     return countExact((q) =>
       q.eq("status", "pending").eq("current_step", "adviser").eq("organization_id", scope.organizationId!),
@@ -1383,7 +1400,7 @@ const CALENDAR_LIST_SELECT = `
   number_of_participants, sdgs, purpose, needs_gso,
   letter_path, original_letter_path, decline_reason, declined_at_step,
   posted_at, calendar_posted_at, created_at, updated_at,
-  organizations ( id, name, college_id )
+  organizations ( id, name, college_id, program_id )
 `;
 
 /**
@@ -1534,11 +1551,12 @@ export function filterMonitoringForRole(
   rows: EventRequestRow[],
   role: AppRole,
   userId: string,
-  scope?: { collegeId?: string | null; organizationId?: string | null },
+  scope?: { collegeId?: string | null; programId?: string | null; organizationId?: string | null },
 ): EventRequestRow[] {
   return rows.filter((r) => {
     if (role === "admin" || role === "osas") return true;
     if (role === "adviser") {
+      if (scope?.programId) return (r.organizations?.program_id ?? null) === scope.programId;
       if (!scope?.organizationId) return false;
       return r.organization_id === scope.organizationId;
     }

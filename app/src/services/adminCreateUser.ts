@@ -18,6 +18,7 @@ export type CreatePortalUserInput = {
   password: string;
   displayName: string;
   collegeId?: string | null;
+  programId?: string | null;
   organizationId?: string | null;
 };
 
@@ -28,6 +29,7 @@ export type UpdatePortalUserInput = {
   displayName: string;
   password?: string;
   collegeId?: string | null;
+  programId?: string | null;
   organizationId?: string | null;
 };
 
@@ -106,6 +108,7 @@ export async function createPortalUser(input: CreatePortalUserInput): Promise<Cr
     password: input.password,
     displayName: input.displayName.trim(),
     collegeId: input.collegeId ?? null,
+    programId: input.programId ?? null,
     organizationId: input.organizationId ?? null,
   });
 }
@@ -118,6 +121,7 @@ export async function updatePortalUser(input: UpdatePortalUserInput): Promise<Cr
     password: input.password?.trim() || "",
     displayName: input.displayName.trim(),
     collegeId: input.collegeId ?? null,
+    programId: input.programId ?? null,
     organizationId: input.organizationId ?? null,
   });
 }

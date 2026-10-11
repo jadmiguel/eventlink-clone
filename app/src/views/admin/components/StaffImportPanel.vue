@@ -131,7 +131,7 @@ async function confirmImport() {
     <h2 class="text-sm font-bold text-slate-900">{{ label }}s</h2>
     <p class="mt-1 text-xs text-slate-600">
       Invite {{ label.toLowerCase() }}s from a spreadsheet. No passwords.
-      {{ kind === "dean" ? "One Dean per college." : "One Adviser per organization." }}
+      {{ kind === "dean" ? "One Dean per college." : "Advisers belong to a program. A program can have more than one adviser." }}
     </p>
     <input ref="fileInput" type="file" accept=".csv,.xlsx,.xls" class="sr-only" @change="onFile" />
     <div class="mt-3 flex flex-col gap-1.5">
@@ -158,7 +158,7 @@ async function confirmImport() {
             <th>Name</th>
             <th>Email</th>
             <th>College</th>
-            <th v-if="showOrganization">Organization</th>
+            <th v-if="showOrganization">Program</th>
             <th>Position</th>
             <th>Status</th>
             <th>Message</th>
@@ -170,7 +170,7 @@ async function confirmImport() {
             <td>{{ row.fullName || "—" }}</td>
             <td class="text-xs">{{ row.email || "—" }}</td>
             <td>{{ row.college || "—" }}</td>
-            <td v-if="showOrganization">{{ row.organization || "—" }}</td>
+            <td v-if="showOrganization">{{ row.program || "—" }}</td>
             <td>{{ row.position || "—" }}</td>
             <td><StatusBadge :label="row.status" :tone="statusTone(row.status)" /></td>
             <td class="text-xs text-slate-600">{{ row.message }}</td>
@@ -187,7 +187,7 @@ async function confirmImport() {
             <th>Name</th>
             <th>Email</th>
             <th>College</th>
-            <th v-if="showOrganization">Organization</th>
+            <th v-if="showOrganization">Program</th>
             <th>Position</th>
             <th>Status</th>
             <th>Message</th>

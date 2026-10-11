@@ -38,7 +38,7 @@ function isValidEmailAddress(email: string): boolean {
   const parts = emailParts(email);
   if (!parts) return false;
   const { domain } = parts;
-  if (!domain.includes(".") || domain.startsWith(".") || domain.endsWith(".")) return false;
+  if (domain.startsWith(".") || domain.endsWith(".") || domain.includes("..")) return false;
   return !domain.includes(" ") && !parts.local.includes(" ");
 }
 
@@ -72,8 +72,7 @@ async function loadRequireIsuEmail(
       response: json(500, { error: "Could not load application settings.", source: "app_settings" }),
     };
   }
-  // Fail closed: missing row means ISU email is required.
-  return { ok: true, value: data?.require_isu_email !== false };
+  return { ok: true, value: data?.require_isu_email === true };
 }
 
 const singletonRoles = new Set(["osas", "eo", "gso"]);
@@ -85,6 +84,7 @@ type CreateUserBody = {
   password?: string;
   displayName?: string;
   collegeId?: string | null;
+  programId?: string | null;
   organizationId?: string | null;
 };
 
@@ -155,6 +155,7 @@ Deno.serve(async (req) => {
   const password = String(body.password ?? "");
   const displayName = String(body.displayName ?? "").trim();
   const collegeId = String(body.collegeId ?? "").trim();
+  const programId = String(body.programId ?? "").trim();
   const organizationId = String(body.organizationId ?? "").trim();
 
   if (!validRoles.has(role)) {
@@ -174,9 +175,13 @@ Deno.serve(async (req) => {
     }
   }
   const needsCollege = role === "dean" || role === "adviser" || role === "student_officer";
-  const needsOrganization = role === "adviser" || role === "student_officer";
+  const needsProgram = role === "adviser" || role === "student_officer";
+  const needsOrganization = role === "student_officer";
   if (needsCollege && !collegeId) {
     return json(400, { error: "College is required for this role." });
+  }
+  if (needsProgram && !programId) {
+    return json(400, { error: "Program is required for this role." });
   }
   if (needsOrganization && !organizationId) {
     return json(400, { error: "Organization is required for this role." });
@@ -192,16 +197,32 @@ Deno.serve(async (req) => {
     if (!collegeRow) return json(400, { error: "Selected college was not found." });
   }
 
+  if (programId) {
+    const { data: programRow, error: programErr } = await admin
+      .from("programs")
+      .select("id, college_id")
+      .eq("id", programId)
+      .maybeSingle();
+    if (programErr) return json(500, { error: programErr.message });
+    if (!programRow) return json(400, { error: "Selected program was not found." });
+    if (collegeId && programRow.college_id !== collegeId) {
+      return json(400, { error: "Selected program does not belong to the selected college." });
+    }
+  }
+
   if (organizationId) {
     const { data: orgRow, error: orgErr } = await admin
       .from("organizations")
-      .select("id, college_id")
+      .select("id, college_id, program_id")
       .eq("id", organizationId)
       .maybeSingle();
     if (orgErr) return json(500, { error: orgErr.message });
     if (!orgRow) return json(400, { error: "Selected organization was not found." });
     if (collegeId && orgRow.college_id !== collegeId) {
       return json(400, { error: "Selected organization does not belong to the selected college." });
+    }
+    if (needsOrganization && programId && orgRow.program_id !== programId) {
+      return json(400, { error: "Selected organization does not belong to the selected program." });
     }
   }
 
@@ -343,8 +364,9 @@ Deno.serve(async (req) => {
       id: userId,
       display_name: displayName,
       email: finalEmail,
-      college_id: collegeId || null,
-      organization_id: organizationId || null,
+      college_id: needsCollege ? collegeId || null : null,
+      program_id: needsProgram ? programId || null : null,
+      organization_id: needsOrganization ? organizationId || null : null,
     },
     { onConflict: "id" },
   );

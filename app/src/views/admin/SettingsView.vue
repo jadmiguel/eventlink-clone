@@ -116,9 +116,7 @@ onMounted(() => {
         </div>
         <ul class="space-y-2 text-sm text-slate-700">
           <li>
-            <strong>Email OTP:</strong> Admin must verify OTP on every sign-in. Other roles
-            verify once per browser (trusted device); local Vite can still skip OTP via
-            <code>DEV_SKIP_STAFF_EMAIL_OTP</code>.
+            <strong>Sign-in:</strong> Email and password are enough. No email code is required.
           </li>
           <li>Admin-created users are created with email already confirmed (no verification link).</li>
           <li>Three failed password attempts trigger a 60-second lockout.</li>

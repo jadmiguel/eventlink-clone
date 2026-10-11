@@ -36,3 +36,5 @@ Thumbs.db
 *.suo
 *.sw?
 
+.vercel
+.env*

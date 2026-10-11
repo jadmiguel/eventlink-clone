@@ -67,6 +67,7 @@ export const useAuthStore = defineStore("auth", () => {
   const displayName = ref<string | null>(null);
   const appRole = ref<AppRole | null>(null);
   const collegeId = ref<string | null>(null);
+  const programId = ref<string | null>(null);
   const organizationId = ref<string | null>(null);
   const passwordRecoveryPending = ref(false);
   const useMock = computed(() => import.meta.env.DEV && !isSupabaseConfigured);
@@ -570,7 +571,7 @@ export const useAuthStore = defineStore("auth", () => {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from("profiles")
-      .select("display_name, email, college_id, organization_id")
+      .select("display_name, email, college_id, program_id, organization_id")
       .eq("id", uid)
       .maybeSingle();
 
@@ -578,6 +579,7 @@ export const useAuthStore = defineStore("auth", () => {
     displayName.value = data?.display_name ?? displayName.value;
     if (data?.email) email.value = data.email;
     collegeId.value = (data?.college_id as string | null | undefined) ?? null;
+    programId.value = (data?.program_id as string | null | undefined) ?? null;
     organizationId.value = (data?.organization_id as string | null | undefined) ?? null;
   }
 
@@ -623,6 +625,7 @@ export const useAuthStore = defineStore("auth", () => {
       displayName.value = null;
       appRole.value = null;
       collegeId.value = null;
+      programId.value = null;
       organizationId.value = null;
       try {
         useNotificationsStore().clear();
@@ -1002,6 +1005,7 @@ export const useAuthStore = defineStore("auth", () => {
     displayName.value = null;
     appRole.value = null;
     collegeId.value = null;
+    programId.value = null;
     organizationId.value = null;
     userId.value = null;
     passwordRecoveryPending.value = false;
@@ -1016,6 +1020,7 @@ export const useAuthStore = defineStore("auth", () => {
     displayName,
     appRole,
     collegeId,
+    programId,
     organizationId,
     passwordRecoveryPending,
     stayOnlineEnabled,

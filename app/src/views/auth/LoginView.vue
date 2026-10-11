@@ -6,8 +6,6 @@ import { formatAuthError, useAuthStore } from "@/stores/auth";
 import { useProfileStore } from "@/stores/profile";
 import { useUiStore } from "@/stores/ui";
 import { useNotificationsStore } from "@/stores/notifications";
-import { shouldSkipStaffEmailOtp } from "@/config/devAuth";
-import { isAdminRole, isTrustedDevice, markDeviceTrusted } from "@/config/trustedDevice";
 import { usePageVisibility } from "@/composables/usePageVisibility";
 
 const route = useRoute();
@@ -25,11 +23,6 @@ const loading = ref(false);
 const error = ref("");
 const showResendConfirm = ref(false);
 const resendLoading = ref(false);
-const otpRequired = ref(false);
-const otpCode = ref("");
-const otpLoading = ref(false);
-const otpResendLoading = ref(false);
-const otpEmail = ref("");
 const failedPasswordAttempts = ref(0);
 const lockedUntilMs = ref(0);
 const nowMs = ref(Date.now());
@@ -199,35 +192,6 @@ async function onSubmit() {
     await assertRateLimitAllowed("login", email.value.trim().toLowerCase());
     await auth.signIn(email.value.trim(), password.value, { provisional: true });
     clearLockoutState(email.value);
-    const mail = email.value.trim();
-    const skipOtp =
-      auth.useMock ||
-      shouldSkipStaffEmailOtp(mail, auth.appRole) ||
-      (!isAdminRole(auth.appRole) && isTrustedDevice(mail));
-    if (!skipOtp) {
-      try {
-        await auth.sendEmailOtp(mail);
-        otpRequired.value = true;
-        otpEmail.value = mail
-        otpCode.value = "";
-        ui.pushToast("OTP sent", `Enter the code sent to ${otpEmail.value}.`, "info");
-      } catch (otpErr) {
-        const otpMsg = formatAuthError(otpErr);
-        if (otpMsg.toLowerCase().includes("rate")) {
-          error.value = "Email rate limit reached. Please wait a few minutes, then try again.";
-        } else {
-          error.value = otpMsg;
-        }
-      } finally {
-        // Never keep a provisional password session active for OTP-required users.
-        try {
-          await auth.signOut();
-        } catch {
-          // Ignore sign-out errors here; user must still verify OTP before access.
-        }
-      }
-      return;
-    }
     void auth.activateCurrentSessionSecurity(true);
     await completeLogin();
   } catch (e) {
@@ -250,48 +214,6 @@ async function onSubmit() {
   }
 }
 
-async function verifyOtpAndSignIn() {
-  error.value = "";
-  if (!otpCode.value.trim()) {
-    error.value = "Enter the OTP code from your email.";
-    return;
-  }
-  otpLoading.value = true;
-  try {
-    const mail = otpEmail.value || email.value.trim();
-    await auth.verifyEmailOtp(mail, otpCode.value.trim());
-    otpRequired.value = false;
-    if (!isAdminRole(auth.appRole)) {
-      markDeviceTrusted(mail);
-    }
-    await completeLogin();
-  } catch (e) {
-    error.value = formatAuthError(e);
-  } finally {
-    otpLoading.value = false;
-  }
-}
-
-async function resendOtp() {
-  otpResendLoading.value = true;
-  try {
-    await auth.sendEmailOtp(otpEmail.value || email.value.trim());
-    ui.pushToast("OTP sent", `A new code was sent to ${otpEmail.value || email.value.trim()}.`, "success");
-  } catch (e) {
-    error.value = formatAuthError(e);
-  } finally {
-    otpResendLoading.value = false;
-  }
-}
-
-function cancelOtpFlow() {
-  otpRequired.value = false;
-  otpCode.value = "";
-  otpEmail.value = "";
-  password.value = "";
-  error.value = "";
-}
-
 function dismissNewUserHint() {
   showNewUserHint.value = false;
   if (typeof window !== "undefined") {
@@ -303,7 +225,7 @@ function dismissNewUserHint() {
 <template>
   <div class="portal-root flex min-h-dvh flex-col">
     <div
-      v-if="showNewUserHint && !otpRequired"
+      v-if="showNewUserHint"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
     >
       <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" role="dialog" aria-labelledby="new-user-hint-title">
@@ -346,9 +268,9 @@ function dismissNewUserHint() {
 
       <div class="auth-glass-card w-full max-w-md">
         <h2 class="text-lg font-semibold text-slate-900">Sign in</h2>
-        <p class="mt-1 text-sm text-slate-600">Use your institutional email to continue.</p>
+        <p class="mt-1 text-sm text-slate-600">Use your email and password to continue.</p>
 
-        <form v-if="!otpRequired" class="mt-6 space-y-4" @submit.prevent="onSubmit">
+        <form class="mt-6 space-y-4" @submit.prevent="onSubmit">
           <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500" for="login-email"
               >Email</label
@@ -358,10 +280,10 @@ function dismissNewUserHint() {
               <input
                 id="login-email"
                 v-model="email"
-                type="email"
+                type="text"
                 autocomplete="username"
                 class="portal-input pl-10"
-                placeholder="you@university.edu"
+                placeholder="name@school.edu"
               />
             </div>
           </div>
@@ -421,53 +343,6 @@ function dismissNewUserHint() {
             <span v-if="loading">Signing in…</span>
             <span v-else>Continue</span>
           </button>
-        </form>
-
-        <form v-else class="mt-6 space-y-4" @submit.prevent="verifyOtpAndSignIn">
-          <div>
-            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500" for="login-otp"
-              >Email OTP</label
-            >
-            <div class="relative">
-              <ShieldCheck class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="login-otp"
-                v-model="otpCode"
-                type="text"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                class="portal-input pl-10"
-                placeholder="Enter 6-digit code"
-              />
-            </div>
-            <p class="mt-1 text-xs text-slate-500">
-              Code sent to {{ otpEmail || email }}.
-              <span v-if="!isAdminRole(auth.appRole)">This browser will skip OTP on later sign-ins.</span>
-              <span v-else>Admin accounts require OTP on every sign-in.</span>
-            </p>
-          </div>
-
-          <p v-if="error" class="text-sm font-medium text-red-700">{{ error }}</p>
-
-          <button type="submit" class="portal-btn w-full" :disabled="otpLoading">
-            <ShieldCheck v-if="!otpLoading" class="h-4 w-4" />
-            <span v-if="otpLoading">Verifying…</span>
-            <span v-else>Verify and continue</span>
-          </button>
-
-          <div class="flex flex-col gap-2 sm:flex-row">
-            <button
-              type="button"
-              class="portal-btn-secondary w-full text-sm"
-              :disabled="otpResendLoading"
-              @click="resendOtp"
-            >
-              {{ otpResendLoading ? "Sending…" : "Resend OTP" }}
-            </button>
-            <button type="button" class="portal-btn-secondary w-full text-sm" @click="cancelOtpFlow">
-              Back to password login
-            </button>
-          </div>
         </form>
 
       <p class="mt-8 text-center text-xs text-slate-500">

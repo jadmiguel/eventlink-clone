@@ -8,6 +8,8 @@ export type CollegeOrgImportStatus = "Valid" | "Duplicate" | "Invalid" | "Warnin
 export type CollegeOrgImportRow = {
   row: number;
   collegeName: string;
+  programName: string;
+  programRequired: boolean;
   organizationName: string;
   organizationCode: string;
 };
@@ -22,7 +24,7 @@ export type CollegeOrgCatalogCollege = {
   organizations: { name: string; slug: string | null }[];
 };
 
-type HeaderField = "college_name" | "organization_name" | "organization_code";
+type HeaderField = "college_name" | "program_name" | "organization_name" | "organization_code";
 
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -57,6 +59,7 @@ function normalizeHeader(h: string): string {
 function headerKey(h: string): HeaderField | null {
   const x = normalizeHeader(h);
   if (["college_name", "college", "college_title"].includes(x)) return "college_name";
+  if (["program_name", "program"].includes(x)) return "program_name";
   if (["organization_name", "organization", "org_name", "org"].includes(x)) return "organization_name";
   if (["organization_code", "org_code", "code", "slug"].includes(x)) return "organization_code";
   return null;
@@ -70,27 +73,37 @@ export function normalizeOrganizationCode(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export function isCollegeOrgExampleRow(row: Pick<CollegeOrgImportRow, "collegeName" | "organizationName" | "organizationCode">): boolean {
+export function isCollegeOrgExampleRow(
+  row: Pick<CollegeOrgImportRow, "collegeName" | "programName" | "organizationName" | "organizationCode">,
+): boolean {
   const college = row.collegeName.trim().toLowerCase();
+  const program = row.programName.trim().toLowerCase();
   const org = row.organizationName.trim().toLowerCase();
   const code = normalizeOrganizationCode(row.organizationCode);
-  return college.startsWith("example ") || org.startsWith("example ") || code.startsWith("example-");
+  return (
+    college.startsWith("example ") ||
+    program.startsWith("example ") ||
+    org.startsWith("example ") ||
+    code.startsWith("example-")
+  );
 }
 
 function rowFromCells(
   cells: string[],
   headerMap: { index: number; key: HeaderField }[],
   rowIndex: number,
+  programRequired: boolean,
 ): CollegeOrgImportRow | null {
   const obj: Partial<Record<HeaderField, string>> = {};
   for (const { index, key } of headerMap) {
     obj[key] = cells[index] ?? "";
   }
   const collegeName = (obj.college_name ?? "").trim();
+  const programName = (obj.program_name ?? "").trim();
   const organizationName = (obj.organization_name ?? "").trim();
   const organizationCode = (obj.organization_code ?? "").trim();
-  if (!collegeName && !organizationName && !organizationCode) return null;
-  return { row: rowIndex, collegeName, organizationName, organizationCode };
+  if (!collegeName && !programName && !organizationName && !organizationCode) return null;
+  return { row: rowIndex, collegeName, programName, programRequired, organizationName, organizationCode };
 }
 
 function parseGrid(rows: string[][]): CollegeOrgImportRow[] {
@@ -106,10 +119,11 @@ function parseGrid(rows: string[][]): CollegeOrgImportRow[] {
   if (!keys.has("college_name") || !keys.has("organization_name") || !keys.has("organization_code")) {
     throw new Error("The file must include college_name, organization_name, and organization_code columns.");
   }
+  const programRequired = keys.has("program_name");
 
   const parsed: CollegeOrgImportRow[] = [];
   for (let i = 1; i < rows.length; i++) {
-    const row = rowFromCells(rows[i] ?? [], headerMap, i + 1);
+    const row = rowFromCells(rows[i] ?? [], headerMap, i + 1, programRequired);
     if (row) parsed.push(row);
   }
   return parsed;
@@ -128,9 +142,9 @@ export async function parseCollegeOrgXlsx(buffer: ArrayBuffer): Promise<CollegeO
 
 export function downloadCollegeOrgTemplate(): void {
   downloadCsv("eventlink-college-organization-template.csv", [
-    ["college_name", "organization_name", "organization_code"],
-    ["EXAMPLE College of Computing Studies", "EXAMPLE ICT Society", "example-ccs-ict"],
-    ["EXAMPLE College of Business", "EXAMPLE Junior Philippine Institute of Accountants", "example-cbm-jpia"],
+    ["college_name", "program_name", "organization_name", "organization_code"],
+    ["EXAMPLE College of Computing Studies", "EXAMPLE Information Technology", "EXAMPLE ICT Society", "example-ccs-ict"],
+    ["EXAMPLE College of Business", "EXAMPLE Accountancy", "EXAMPLE Junior Philippine Institute of Accountants", "example-cbm-jpia"],
   ]);
 }
 
@@ -154,20 +168,31 @@ export function validateCollegeOrgImportRows(
     if (isCollegeOrgExampleRow(row)) continue;
 
     const collegeName = row.collegeName.trim();
+    const programName = row.programName.trim();
     const organizationName = row.organizationName.trim();
     const organizationCode = normalizeOrganizationCode(row.organizationCode);
     const preview: CollegeOrgImportPreviewRow = {
       row: row.row,
       collegeName,
+      programName,
+      programRequired: row.programRequired,
       organizationName,
       organizationCode,
       status: "Valid",
-      message: "New organization will be created.",
+      message: programName
+        ? `New organization will be created under ${programName}.`
+        : "New organization will be created.",
     };
 
     if (!collegeName) {
       preview.status = "Invalid";
       preview.message = "College name is required.";
+    } else if (row.programRequired && !programName) {
+      preview.status = "Invalid";
+      preview.message = "Program name is required.";
+    } else if (programName.length > 200) {
+      preview.status = "Invalid";
+      preview.message = "Program name is too long.";
     } else if (!organizationName) {
       preview.status = "Invalid";
       preview.message = "Organization name is required.";
@@ -202,8 +227,13 @@ export function validateCollegeOrgImportRows(
             (org) => org.name.trim().toLowerCase() === organizationName.toLowerCase(),
           );
           if (existingByName) {
-            preview.status = "Duplicate";
-            preview.message = `Organization "${organizationName}" already exists under "${collegeName}".`;
+            if (programName) {
+              preview.status = "Warning";
+              preview.message = `Organization "${organizationName}" already exists. It will be placed under program "${programName}".`;
+            } else {
+              preview.status = "Duplicate";
+              preview.message = `Organization "${organizationName}" already exists under "${collegeName}".`;
+            }
           } else {
             const existingBySlug = college.organizations.find(
               (org) => (org.slug ?? "").trim().toLowerCase() === organizationCode,

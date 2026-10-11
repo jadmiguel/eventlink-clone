@@ -50,7 +50,7 @@ export type EventRequestRow = {
   student_post_image_path: string | null;
   created_at: string;
   updated_at: string;
-  organizations?: { id?: string; name: string; college_id?: string } | null;
+  organizations?: { id?: string; name: string; college_id?: string; program_id?: string | null } | null;
   profiles?: { display_name: string } | null;
   event_request_equipment?: Array<{
     quantity_requested: number;

@@ -19,7 +19,7 @@ export function isValidEmailAddress(email: string): boolean {
   const parts = emailParts(email);
   if (!parts) return false;
   const { domain } = parts;
-  if (!domain.includes(".") || domain.startsWith(".") || domain.endsWith(".")) return false;
+  if (domain.startsWith(".") || domain.endsWith(".") || domain.includes("..")) return false;
   return !domain.includes(" ") && !parts.local.includes(" ");
 }
 

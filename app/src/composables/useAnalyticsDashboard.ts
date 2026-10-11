@@ -74,6 +74,7 @@ export function useAnalyticsDashboard(scope: AnalyticsScope) {
     try {
       data.value = await fetchAnalyticsOverview(scope, {
         collegeId: auth.collegeId,
+        programId: auth.programId,
         organizationId: auth.organizationId,
         userId: auth.userId,
         period: period.value,

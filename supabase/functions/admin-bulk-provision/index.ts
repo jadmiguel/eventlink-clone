@@ -42,6 +42,7 @@ type RowResult = {
 
 type ClassifiedRow = RowResult & {
   collegeId?: string;
+  programId?: string;
   organizationId?: string;
   displayName?: string;
   program?: string;
@@ -76,7 +77,7 @@ function isValidEmailAddress(email: string): boolean {
   const parts = emailParts(email);
   if (!parts) return false;
   const { domain } = parts;
-  if (!domain.includes(".") || domain.startsWith(".") || domain.endsWith(".")) return false;
+  if (domain.startsWith(".") || domain.endsWith(".") || domain.includes("..")) return false;
   return !domain.includes(" ") && !parts.local.includes(" ");
 }
 
@@ -122,7 +123,7 @@ function inviteRedirect(): string | undefined {
 async function loadRequireIsuEmail(admin: SupabaseClient): Promise<boolean> {
   const { data, error } = await admin.from("app_settings").select("require_isu_email").eq("id", 1).maybeSingle();
   if (error) throw error;
-  return data?.require_isu_email !== false;
+  return data?.require_isu_email === true;
 }
 
 async function emailAlreadyRegistered(admin: SupabaseClient, email: string): Promise<boolean> {
@@ -231,9 +232,12 @@ Deno.serve(async (req) => {
   if (collegeErr) return json(500, { error: "Could not load colleges." });
   const { data: orgRows, error: orgErr } = await admin.from("organizations").select("id, name, slug, college_id");
   if (orgErr) return json(500, { error: "Could not load organizations." });
+  const { data: programRows, error: programErr } = await admin.from("programs").select("id, name, college_id");
+  if (programErr) return json(500, { error: "Could not load programs." });
 
   const colleges = (collegeRows ?? []) as Array<{ id: string; name: string; code: string | null }>;
   const orgs = (orgRows ?? []) as Array<{ id: string; name: string; slug: string | null; college_id: string }>;
+  const programs = (programRows ?? []) as Array<{ id: string; name: string; college_id: string }>;
 
   const { data: allRoles, error: allRolesErr } = await admin.from("user_roles").select("user_id, role");
   if (allRolesErr) return json(500, { error: "Could not load roles." });
@@ -311,7 +315,7 @@ Deno.serve(async (req) => {
       full_name: fullName,
       email,
       college: collegeName,
-      organization,
+      organization: forcedRole === "adviser" ? program : organization,
       position,
       program,
       yearLevel,
@@ -338,9 +342,12 @@ Deno.serve(async (req) => {
     } else if (!collegeName) {
       result.status = "Invalid";
       result.message = "College is required.";
-    } else if (forcedRole !== "dean" && !organization) {
+    } else if (forcedRole === "student_officer" && !organization) {
       result.status = "Invalid";
       result.message = "Organization is required.";
+    } else if (forcedRole === "adviser" && !program) {
+      result.status = "Invalid";
+      result.message = "Program is required.";
     } else if (forcedRole === "student_officer" && !studentId) {
       result.status = "Invalid";
       result.message = "Student ID is required.";
@@ -377,7 +384,24 @@ Deno.serve(async (req) => {
         const college = collegeMatches[0]!;
         result.collegeId = college.id;
 
-        if (forcedRole === "dean") {
+        if (forcedRole === "adviser") {
+          const programMatches = programs.filter(
+            (item) =>
+              item.college_id === college.id &&
+              item.name.trim().toLowerCase() === program.trim().toLowerCase(),
+          );
+          if (programMatches.length === 0) {
+            result.status = "Invalid";
+            result.message = `Program "${program}" was not found under "${college.name}".`;
+          } else if (programMatches.length > 1) {
+            result.status = "Invalid";
+            result.message = `Multiple programs match "${program}" in "${college.name}".`;
+          } else {
+            result.programId = programMatches[0]!.id;
+            result.status = "Valid";
+            result.message = `Will invite this user as Adviser of ${programMatches[0]!.name}.`;
+          }
+        } else if (forcedRole === "dean") {
           if (seenCollege.has(college.id)) {
             result.status = "Invalid";
             result.message = `Duplicate row: college "${college.name}" already has a Dean in this file.`;
@@ -559,7 +583,8 @@ Deno.serve(async (req) => {
           email: item.email,
           student_id: forcedRole === "student_officer" ? item.student_id : null,
           college_id: item.collegeId ?? null,
-          organization_id: forcedRole === "dean" ? null : item.organizationId ?? null,
+          program_id: forcedRole === "adviser" ? item.programId ?? null : null,
+          organization_id: forcedRole === "student_officer" ? item.organizationId ?? null : null,
           position: item.position,
         },
         { onConflict: "id" },

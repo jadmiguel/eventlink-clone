@@ -401,11 +401,12 @@ async function fetchResourceOfficeRequestIds(office: ResourceOffice): Promise<st
 
 async function fetchScopedRequestIds(scope: EventsLogScope): Promise<string[] | null> {
   const collegeId = scope.collegeId?.trim() || null;
+  const programId = scope.programId?.trim() || null;
   const organizationId = scope.organizationId?.trim() || null;
   const userId = scope.userId?.trim() || null;
 
   if (scope.role === "dean" && !collegeId) return [];
-  if (scope.role === "adviser" && !collegeId && !organizationId) return [];
+  if (scope.role === "adviser" && !programId && !organizationId) return [];
   if (scope.role === "student_officer" && !organizationId && !userId) return [];
 
   if (
@@ -437,10 +438,10 @@ async function fetchScopedRequestIds(scope: EventsLogScope): Promise<string[] | 
   since.setFullYear(since.getFullYear() - 1);
   const sinceIso = since.toISOString();
 
-  const useInnerOrg = scope.role === "dean" || (scope.role === "adviser" && !!collegeId);
+  const useInnerOrg = scope.role === "dean" || (scope.role === "adviser" && !!programId);
   const orgSelect = useInnerOrg
-    ? "organizations!inner(name, college_id)"
-    : "organizations(name, college_id)";
+    ? "organizations!inner(name, college_id, program_id)"
+    : "organizations(name, college_id, program_id)";
 
   let query = supabase
     .from("event_requests")
@@ -458,7 +459,7 @@ async function fetchScopedRequestIds(scope: EventsLogScope): Promise<string[] | 
   } else if (scope.role === "dean") {
     query = query.eq("organizations.college_id", collegeId!);
   } else if (scope.role === "adviser") {
-    if (collegeId) query = query.eq("organizations.college_id", collegeId);
+    if (programId) query = query.eq("organizations.program_id", programId);
     else if (organizationId) query = query.eq("organization_id", organizationId);
   } else if (isResourceOfficeScope(scope.role)) {
     return fetchResourceOfficeRequestIds(scope.role);

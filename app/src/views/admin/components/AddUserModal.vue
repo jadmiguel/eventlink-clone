@@ -38,6 +38,7 @@ const name = ref("");
 const email = ref("");
 const password = ref("");
 const collegeId = ref("");
+const programId = ref("");
 const organizationId = ref("");
 const creating = ref(false);
 const loadingOptions = ref(false);
@@ -64,12 +65,16 @@ const roleLabel = computed(() => roleOptions.find((r) => r.value === role.value)
 const requiresCollege = computed(
   () => role.value === "student_officer" || role.value === "adviser" || role.value === "dean",
 );
-const requiresOrganization = computed(
+const requiresProgram = computed(
   () => role.value === "student_officer" || role.value === "adviser",
 );
+const requiresOrganization = computed(() => role.value === "student_officer");
+const selectedCollege = computed(() => colleges.value.find((c) => c.id === collegeId.value) ?? null);
+const programOptions = computed(() => selectedCollege.value?.programs ?? []);
 const organizationOptions = computed(() => {
-  const selectedCollege = colleges.value.find((c) => c.id === collegeId.value);
-  return selectedCollege?.organizations ?? [];
+  const programs = selectedCollege.value?.programs ?? [];
+  const selected = programs.find((program) => program.id === programId.value);
+  return selected?.organizations ?? [];
 });
 const officerByOrgId = computed(() => officerNamesByOrganizationId(orgAssignments.value));
 const selectedOrgOfficer = computed(() =>
@@ -112,6 +117,7 @@ watch(
     email.value = "";
     password.value = "";
     collegeId.value = "";
+    programId.value = "";
     organizationId.value = "";
   },
 );
@@ -119,15 +125,21 @@ watch(
 watch(role, () => {
   if (!requiresCollege.value) {
     collegeId.value = "";
+    programId.value = "";
     organizationId.value = "";
     return;
   }
-  if (!requiresOrganization.value) {
-    organizationId.value = "";
-  }
+  if (!requiresProgram.value) programId.value = "";
+  if (!requiresOrganization.value) organizationId.value = "";
 });
 
 watch(collegeId, () => {
+  if (!programOptions.value.some((program) => program.id === programId.value)) {
+    programId.value = "";
+  }
+});
+
+watch(programId, () => {
   if (!organizationOptions.value.some((org) => org.id === organizationId.value)) {
     organizationId.value = "";
   }
@@ -172,6 +184,10 @@ async function handleSubmit(e: Event) {
     ui.pushToast("Missing fields", "Select a college for this role.", "error");
     return;
   }
+  if (requiresProgram.value && !programId.value) {
+    ui.pushToast("Missing fields", "Select a program for this role.", "error");
+    return;
+  }
   if (requiresOrganization.value && !organizationId.value) {
     ui.pushToast("Missing fields", "Select an organization for this role.", "error");
     return;
@@ -185,6 +201,7 @@ async function handleSubmit(e: Event) {
       password: password.value,
       displayName: name.value.trim(),
       collegeId: collegeId.value || null,
+      programId: programId.value || null,
       organizationId: organizationId.value || null,
     });
     ui.pushToast("Account created", `${email.value.trim()} can now sign in.`, "success");
@@ -228,7 +245,7 @@ async function handleSubmit(e: Event) {
           <p class="font-semibold">Create staff account</p>
           <p class="mt-1 text-sky-900/90">
             This form creates a real Supabase auth user and assigns the selected portal role.
-            College and organization are saved when required by role.
+            A dean is assigned to a college. An adviser is assigned to a program. A student officer is assigned to an organization.
           </p>
         </div>
 
@@ -266,6 +283,15 @@ async function handleSubmit(e: Event) {
           </div>
 
           <div
+            v-if="role === 'adviser'"
+            class="rounded-lg border border-amber-200 bg-amber-50 p-4"
+          >
+            <p class="text-sm text-amber-900">
+              <strong>Note:</strong> Advisers belong to a program. A program can have more than one adviser, and they review every organization in that program.
+            </p>
+          </div>
+
+          <div
             v-if="role === 'student_officer' && selectedOrgOfficer"
             class="rounded-lg border border-amber-200 bg-amber-50 p-4"
           >
@@ -290,6 +316,23 @@ async function handleSubmit(e: Event) {
             <p v-if="loadingOptions" class="mt-1 text-xs text-slate-500">Loading colleges...</p>
           </div>
 
+          <div v-if="requiresProgram">
+            <label class="mb-2 block text-sm font-medium text-gray-700">
+              Program <span class="text-red-500">*</span>
+            </label>
+            <select
+              v-model="programId"
+              required
+              :disabled="!collegeId"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            >
+              <option value="">{{ collegeId ? "Select program" : "Select college first" }}</option>
+              <option v-for="program in programOptions" :key="program.id" :value="program.id">
+                {{ program.name }}
+              </option>
+            </select>
+          </div>
+
           <div v-if="requiresOrganization">
             <label class="mb-2 block text-sm font-medium text-gray-700">
               Organization <span class="text-red-500">*</span>
@@ -297,10 +340,10 @@ async function handleSubmit(e: Event) {
             <select
               v-model="organizationId"
               required
-              :disabled="!collegeId"
+              :disabled="!programId"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
             >
-              <option value="">{{ collegeId ? "Select organization" : "Select college first" }}</option>
+              <option value="">{{ programId ? "Select organization" : "Select program first" }}</option>
               <option v-for="org in organizationOptions" :key="org.id" :value="org.id">
                 {{ organizationOptionLabel(org.id, org.name) }}
               </option>
@@ -326,7 +369,7 @@ async function handleSubmit(e: Event) {
             </label>
             <input
               v-model="email"
-              type="email"
+              type="text"
               required
               :placeholder="requireIsuEmail ? 'user@isu.edu.ph' : 'user@email.com'"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"

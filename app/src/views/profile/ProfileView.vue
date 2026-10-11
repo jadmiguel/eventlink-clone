@@ -260,7 +260,7 @@ const compactProfileHeader = computed(
               <ProfileField
                 v-model="draft.email"
                 label="Email"
-                input-type="email"
+                input-type="text"
                 :editable="emailEditable"
               />
               <ProfileField v-model="draft.phone" label="Contact number" input-type="tel" :editable="editMode" />

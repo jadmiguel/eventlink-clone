@@ -224,7 +224,7 @@ async function resendConfirmation() {
                   <input
                     id="semail"
                     v-model="accountEmail"
-                    type="email"
+                    type="text"
                     autocomplete="email"
                     class="portal-input pl-10"
                     placeholder="you@university.edu"

@@ -65,7 +65,7 @@ export const useEventRequestsStore = defineStore("eventRequests", () => {
 
   function currentScopeKey() {
     const auth = useAuthStore();
-    return `${auth.appRole ?? ""}:${auth.collegeId ?? ""}:${auth.organizationId ?? ""}:${auth.userId ?? ""}`;
+    return `${auth.appRole ?? ""}:${auth.collegeId ?? ""}:${auth.programId ?? ""}:${auth.organizationId ?? ""}:${auth.userId ?? ""}`;
   }
   /** Server head-count of pending actions for the current role (not capped at PORTAL_LIST_LIMIT). */
   const pendingActionCount = ref(0);
@@ -110,7 +110,9 @@ export const useEventRequestsStore = defineStore("eventRequests", () => {
       try {
         const data = await fetchCalendarEventsInRange({ startDate, endDate });
         // Keep role/org scope when portal rows are already org-scoped.
-        if (auth.appRole === "adviser" && auth.organizationId) {
+        if (auth.appRole === "adviser" && auth.programId) {
+          calendarRows.value = data.filter((r) => (r.organizations?.program_id ?? null) === auth.programId);
+        } else if (auth.appRole === "adviser" && auth.organizationId) {
           calendarRows.value = data.filter((r) => r.organization_id === auth.organizationId);
         } else if (auth.appRole === "dean" && auth.collegeId) {
           calendarRows.value = data.filter(
@@ -179,6 +181,7 @@ export const useEventRequestsStore = defineStore("eventRequests", () => {
               role: auth.appRole!,
               userId: auth.userId!,
               collegeId: auth.collegeId,
+              programId: auth.programId,
               organizationId: auth.organizationId,
             }),
           1,
@@ -189,11 +192,13 @@ export const useEventRequestsStore = defineStore("eventRequests", () => {
         lastLoadedAt.value = Date.now();
         const listPending = getPendingEventsForCurrentUser(nextRows, auth.appRole!, auth.userId!, {
           collegeId: auth.collegeId,
+          programId: auth.programId,
           organizationId: auth.organizationId,
         }).length;
         try {
           const counted = await countPendingForRole(auth.appRole!, auth.userId!, {
             collegeId: auth.collegeId,
+            programId: auth.programId,
             organizationId: auth.organizationId,
           });
           pendingActionCount.value = Math.max(counted, listPending);
@@ -327,6 +332,7 @@ export const useEventRequestsStore = defineStore("eventRequests", () => {
     const auth = useAuthStore();
     return getPendingEventsForCurrentUser(rows.value, role, userId, {
       collegeId: auth.collegeId,
+      programId: auth.programId,
       organizationId: auth.organizationId,
     }).map((r) => portalOf(r));
   }
@@ -442,6 +448,7 @@ export const useEventRequestsStore = defineStore("eventRequests", () => {
     const auth = useAuthStore();
     return filterMonitoringForRole(rows.value, role, userId, {
       collegeId: auth.collegeId,
+      programId: auth.programId,
       organizationId: auth.organizationId,
     }).map((r) => portalOf(r));
   }

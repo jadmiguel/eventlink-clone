@@ -3,9 +3,12 @@ import { computed, onMounted, ref } from "vue";
 import { Plus, ChevronDown, ChevronUp, Pencil, Trash2, Upload, Download, FileSpreadsheet } from "lucide-vue-next";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import {
+  assignOrganizationToProgram,
   createCollege,
   createOrganization,
+  createProgram,
   deleteOrganization,
+  deleteProgram,
   fetchCollegesWithOrganizations,
   updateCollege,
   type CollegeWithOrgs,
@@ -67,7 +70,20 @@ function officerLabel(organizationId: string): string {
 }
 
 function adviserLabel(organizationId: string): string {
-  return adviserByOrgId.value.get(organizationId) || "Not assigned";
+  return adviserByOrgId.value.get(organizationId) || "";
+}
+
+function advisersForProgram(collegeName: string, programName: string): string {
+  const names = portalUsers.value
+    .filter(
+      (user) =>
+        user.app_role === "adviser" &&
+        user.college.trim().toLowerCase() === collegeName.trim().toLowerCase() &&
+        user.program.trim().toLowerCase() === programName.trim().toLowerCase(),
+    )
+    .map((user) => user.display_name.trim())
+    .filter(Boolean);
+  return names.length ? names.join(", ") : "Not assigned";
 }
 
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -187,7 +203,10 @@ const expandedCollege = ref<string | null>(null);
 const newCollegeName = ref("");
 const newCollegeCode = ref("");
 const newOrgName = ref("");
+const newProgramName = ref("");
 const addingOrgFor = ref<string | null>(null);
+const addingProgramFor = ref<string | null>(null);
+const moveTargets = ref<Record<string, string>>({});
 const editingCollegeId = ref<string | null>(null);
 const editCollegeName = ref("");
 const editCollegeCode = ref("");
@@ -258,12 +277,45 @@ async function addCollege() {
   }
 }
 
-async function addOrganization(collegeId: string) {
+async function addProgram(collegeId: string) {
+  if (!newProgramName.value.trim()) return;
+  try {
+    await createProgram(collegeId, newProgramName.value);
+    newProgramName.value = "";
+    addingProgramFor.value = null;
+    await load();
+  } catch (e) {
+    window.alert(e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function removeProgram(id: string) {
+  if (!window.confirm("Delete this program? Its organizations stay in the college until you assign them again.")) return;
+  try {
+    await deleteProgram(id);
+    await load();
+  } catch (e) {
+    window.alert(e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function addOrganization(collegeId: string, programId: string) {
   if (!newOrgName.value.trim()) return;
   try {
-    await createOrganization(collegeId, newOrgName.value);
+    await createOrganization(collegeId, newOrgName.value, undefined, programId);
     newOrgName.value = "";
     addingOrgFor.value = null;
+    await load();
+  } catch (e) {
+    window.alert(e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function moveOrganization(organizationId: string) {
+  const programId = moveTargets.value[organizationId];
+  if (!programId) return;
+  try {
+    await assignOrganizationToProgram(organizationId, programId);
     await load();
   } catch (e) {
     window.alert(e instanceof Error ? e.message : String(e));
@@ -286,15 +338,15 @@ async function removeOrg(id: string) {
     <div class="mb-8">
       <h1 class="mb-2 text-3xl font-semibold text-gray-900">Colleges & organizations</h1>
       <p class="text-gray-600">
-        Add colleges and student organizations. Officers only see organizations from their college when creating events.
-        SSC (Supreme Student Council) is university-wide and listed separately—not under CCSICT or other colleges.
+        A college has one dean and many programs. Each program has its advisers and its student organizations.
+        Student officers belong to an organization. SSC stays university-wide and is listed separately.
       </p>
     </div>
 
     <div class="mb-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
       <h3 class="mb-1 font-semibold text-gray-900">College & organization import</h3>
       <p class="mb-4 text-sm text-gray-600">
-        Download the template, fill real rows, then upload a CSV or XLSX. Example rows are skipped and nothing is saved until you confirm.
+        Download the template, fill college, program, and organization, then upload a CSV or XLSX. Example rows are skipped and nothing is saved until you confirm.
       </p>
       <input
         ref="fileInput"
@@ -342,6 +394,7 @@ async function removeOrg(id: string) {
             <tr class="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500">
               <th class="py-2 pr-3">Row</th>
               <th class="py-2 pr-3">College</th>
+              <th class="py-2 pr-3">Program</th>
               <th class="py-2 pr-3">Organization</th>
               <th class="py-2 pr-3">Organization Code</th>
               <th class="py-2 pr-3">Status</th>
@@ -352,6 +405,7 @@ async function removeOrg(id: string) {
             <tr v-for="row in previewRows" :key="`${row.row}-${row.collegeName}-${row.organizationName}`" class="border-b border-gray-100">
               <td class="py-2 pr-3 font-mono text-xs">{{ row.row }}</td>
               <td class="py-2 pr-3">{{ row.collegeName || "—" }}</td>
+              <td class="py-2 pr-3">{{ row.programName || "—" }}</td>
               <td class="py-2 pr-3">{{ row.organizationName || "—" }}</td>
               <td class="py-2 pr-3 font-mono text-xs">{{ row.organizationCode || "—" }}</td>
               <td class="py-2 pr-3">
@@ -487,6 +541,9 @@ async function removeOrg(id: string) {
             >
               <Pencil class="h-4 w-4" />
             </button>
+            <span class="rounded-full bg-sky-100 px-3 py-1 text-sm text-sky-800">
+              {{ college.programs.length }} program{{ college.programs.length === 1 ? "" : "s" }}
+            </span>
             <span class="rounded-full bg-green-100 px-3 py-1 text-sm text-green-800">
               {{ college.organizations.length }} org{{ college.organizations.length === 1 ? "" : "s" }}
             </span>
@@ -497,71 +554,178 @@ async function removeOrg(id: string) {
 
         <div v-if="expandedCollege === college.id" class="border-t border-gray-200">
           <div
-            v-if="addingOrgFor === college.id"
-            class="border-b border-gray-200 bg-blue-50 px-6 py-4"
+            v-if="addingProgramFor === college.id"
+            class="border-b border-gray-200 bg-sky-50 px-6 py-4"
           >
-            <h4 class="mb-3 font-medium text-gray-900">New organization</h4>
+            <h4 class="mb-3 font-medium text-gray-900">New program</h4>
             <div class="flex flex-col gap-3 sm:flex-row">
               <input
-                v-model="newOrgName"
+                v-model="newProgramName"
                 type="text"
-                placeholder="Organization name"
+                placeholder="Program name"
                 class="flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <button
                 type="button"
                 class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-                @click.stop="addOrganization(college.id)"
+                @click.stop="addProgram(college.id)"
               >
                 Save
               </button>
               <button
                 type="button"
                 class="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300"
-                @click.stop="addingOrgFor = null"
+                @click.stop="addingProgramFor = null"
               >
                 Cancel
               </button>
             </div>
           </div>
 
-          <ul class="divide-y divide-gray-100">
-            <li
-              v-for="org in college.organizations"
-              :key="org.id"
-              class="flex items-center justify-between px-6 py-3 hover:bg-gray-50"
-            >
+          <div v-for="program in college.programs" :key="program.id" class="border-b border-gray-100">
+            <div class="flex items-start justify-between gap-3 bg-slate-50 px-6 py-3">
               <div class="min-w-0">
-                <span class="font-medium text-gray-800">{{ org.name }}</span>
+                <p class="font-semibold text-gray-900">{{ program.name }}</p>
                 <p class="mt-0.5 text-xs text-slate-500">
-                  Student Officer:
-                  <span class="font-medium text-slate-700">{{ officerLabel(org.id) }}</span>
-                  · Adviser:
-                  <span class="font-medium text-slate-700">{{ adviserLabel(org.id) }}</span>
+                  Advisers:
+                  <span class="font-medium text-slate-700">{{ advisersForProgram(college.name, program.name) }}</span>
                 </p>
               </div>
               <button
                 type="button"
                 class="rounded-lg p-2 text-red-600 hover:bg-red-50"
-                title="Delete organization"
-                @click.stop="removeOrg(org.id)"
+                title="Delete program"
+                @click.stop="removeProgram(program.id)"
               >
                 <Trash2 class="h-4 w-4" />
               </button>
-            </li>
-            <li v-if="!college.organizations.length" class="px-6 py-4 text-sm text-gray-400">
-              No organizations yet.
-            </li>
-          </ul>
+            </div>
+
+            <div
+              v-if="addingOrgFor === program.id"
+              class="border-t border-gray-200 bg-blue-50 px-6 py-4"
+            >
+              <h4 class="mb-3 font-medium text-gray-900">New organization in {{ program.name }}</h4>
+              <div class="flex flex-col gap-3 sm:flex-row">
+                <input
+                  v-model="newOrgName"
+                  type="text"
+                  placeholder="Organization name"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                  @click.stop="addOrganization(college.id, program.id)"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  class="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300"
+                  @click.stop="addingOrgFor = null"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+
+            <ul class="divide-y divide-gray-100">
+              <li
+                v-for="org in program.organizations"
+                :key="org.id"
+                class="flex items-center justify-between px-6 py-3 pl-10 hover:bg-gray-50"
+              >
+                <div class="min-w-0">
+                  <span class="font-medium text-gray-800">{{ org.name }}</span>
+                  <p class="mt-0.5 text-xs text-slate-500">
+                    Student Officer:
+                    <span class="font-medium text-slate-700">{{ officerLabel(org.id) }}</span>
+                    <template v-if="adviserLabel(org.id)">
+                      · Previous adviser:
+                      <span class="font-medium text-slate-700">{{ adviserLabel(org.id) }}</span>
+                    </template>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                  title="Delete organization"
+                  @click.stop="removeOrg(org.id)"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </li>
+              <li v-if="!program.organizations.length" class="px-6 py-3 pl-10 text-sm text-gray-400">
+                No organizations in this program yet.
+              </li>
+            </ul>
+            <div class="px-6 py-3 pl-10">
+              <button
+                type="button"
+                class="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                @click.stop="addingOrgFor = program.id"
+              >
+                <Plus class="h-4 w-4" />
+                Add organization
+              </button>
+            </div>
+          </div>
+
+          <div v-if="college.unassignedOrganizations.length" class="border-b border-gray-100 px-6 py-4">
+            <h4 class="text-sm font-semibold text-gray-900">No program yet</h4>
+            <p class="mt-1 text-xs text-slate-500">
+              These organizations were added before programs. Choose a program to place each one.
+            </p>
+            <ul class="mt-3 divide-y divide-gray-100">
+              <li
+                v-for="org in college.unassignedOrganizations"
+                :key="org.id"
+                class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div class="min-w-0">
+                  <span class="font-medium text-gray-800">{{ org.name }}</span>
+                  <p class="mt-0.5 text-xs text-slate-500">
+                    Student Officer:
+                    <span class="font-medium text-slate-700">{{ officerLabel(org.id) }}</span>
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select
+                    v-model="moveTargets[org.id]"
+                    class="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                    @click.stop
+                  >
+                    <option value="">Select program</option>
+                    <option v-for="program in college.programs" :key="program.id" :value="program.id">
+                      {{ program.name }}
+                    </option>
+                  </select>
+                  <button
+                    type="button"
+                    class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                    :disabled="!moveTargets[org.id]"
+                    @click.stop="moveOrganization(org.id)"
+                  >
+                    Assign
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="!college.programs.length && !college.unassignedOrganizations.length" class="px-6 py-4 text-sm text-gray-400">
+            No programs yet. Add the programs in this college, then add organizations inside each program.
+          </div>
 
           <div class="border-t border-gray-200 bg-gray-50 px-6 py-4">
             <button
               type="button"
               class="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              @click.stop="addingOrgFor = college.id"
+              @click.stop="addingProgramFor = college.id"
             >
               <Plus class="h-4 w-4" />
-              Add organization
+              Add program
             </button>
           </div>
         </div>

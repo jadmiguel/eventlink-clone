@@ -10,7 +10,7 @@ function makeStat(id: string, label: string, value: number, icon: ActivityStatMo
 async function countScheduledForProfile(
   role: AppRole,
   userId: string,
-  profile: { college_id: string | null; organization_id: string | null } | null,
+  profile: { college_id: string | null; program_id: string | null; organization_id: string | null } | null,
 ): Promise<number> {
   const supabase = getSupabase();
   if (role === "gso" || role === "it_infrastructure" || role === "sports_office") {
@@ -24,11 +24,16 @@ async function countScheduledForProfile(
     return count ?? 0;
   }
 
-  const needsCollegeJoin =
-    (role === "dean" || role === "adviser") && !!profile?.college_id;
+  const needsProgramJoin = role === "adviser" && !!profile?.program_id;
+  const needsCollegeJoin = role === "dean" && !!profile?.college_id;
+  const select = needsProgramJoin
+    ? "id, organizations!inner(program_id)"
+    : needsCollegeJoin
+      ? "id, organizations!inner(college_id)"
+      : "id";
   let query = supabase
     .from("event_requests")
-    .select(needsCollegeJoin ? "id, organizations!inner(college_id)" : "id", {
+    .select(select, {
       head: true,
       count: "exact",
     })
@@ -39,6 +44,8 @@ async function countScheduledForProfile(
     else query = query.eq("submitted_by", userId);
   } else if (role === "ssc") {
     query = query.eq("request_type", "ssc");
+  } else if (needsProgramJoin) {
+    query = query.eq("organizations.program_id", profile!.program_id!);
   } else if (needsCollegeJoin) {
     query = query.eq("organizations.college_id", profile!.college_id!);
   } else if (role === "adviser" && profile?.organization_id) {
@@ -67,7 +74,7 @@ export async function fetchProfileActivityStats(role: AppRole, userId: string): 
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("college_id, organization_id")
+    .select("college_id, program_id, organization_id")
     .eq("id", userId)
     .maybeSingle();
 
@@ -79,6 +86,7 @@ export async function fetchProfileActivityStats(role: AppRole, userId: string): 
       .eq("action", "approved"),
     countPendingForRole(role, userId, {
       collegeId: profile?.college_id ?? null,
+      programId: profile?.program_id ?? null,
       organizationId: profile?.organization_id ?? null,
     }),
     countScheduledForProfile(role, userId, profile),
