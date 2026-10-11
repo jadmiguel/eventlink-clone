@@ -82,10 +82,9 @@ async function attachImportedPrograms(rows: CollegeOrgImportPreviewRow[]): Promi
         .ilike("name", row.organizationName.trim())
         .maybeSingle();
       if (error || !data?.id) continue;
-      await assignOrganizationToProgram(data.id as string, programId);
+      await assignOrganizationToProgram(data.id as string, programId, row.organizationCode);
       continue;
     }
-    if (org.program_id === programId) continue;
-    await assignOrganizationToProgram(org.id, programId);
+    await assignOrganizationToProgram(org.id, programId, row.organizationCode);
   }
 }

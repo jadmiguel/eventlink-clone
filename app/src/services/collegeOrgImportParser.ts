@@ -73,6 +73,31 @@ export function normalizeOrganizationCode(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+const ACRONYM_STOP_WORDS = new Set(["a", "an", "and", "da", "de", "for", "in", "of", "the"]);
+
+/** Short words stay whole (IT, ICT, JPIA). Longer words contribute their first letter. */
+export function nameAcronym(value: string): string {
+  const tokens = value.trim().match(/[A-Za-z0-9]+/g) ?? [];
+  let code = "";
+  for (const token of tokens) {
+    if (ACRONYM_STOP_WORDS.has(token.toLowerCase())) continue;
+    code += token.length <= 5 ? token.toUpperCase() : token[0]!.toUpperCase();
+  }
+  return code;
+}
+
+/** College-program-organization, for example CCS-IT-ICTS. */
+export function organizationAcronymCode(
+  collegeName: string,
+  programName: string,
+  organizationName: string,
+): string {
+  return [nameAcronym(collegeName), nameAcronym(programName), nameAcronym(organizationName)]
+    .filter(Boolean)
+    .join("-")
+    .slice(0, 64);
+}
+
 export function isCollegeOrgExampleRow(
   row: Pick<CollegeOrgImportRow, "collegeName" | "programName" | "organizationName" | "organizationCode">,
 ): boolean {
@@ -116,8 +141,8 @@ function parseGrid(rows: string[][]): CollegeOrgImportRow[] {
     if (key && !headerMap.some((h) => h.key === key)) headerMap.push({ index, key });
   });
   const keys = new Set(headerMap.map((h) => h.key));
-  if (!keys.has("college_name") || !keys.has("organization_name") || !keys.has("organization_code")) {
-    throw new Error("The file must include college_name, organization_name, and organization_code columns.");
+  if (!keys.has("college_name") || !keys.has("organization_name")) {
+    throw new Error("The file must include college_name and organization_name columns.");
   }
   const programRequired = keys.has("program_name");
 
@@ -143,8 +168,8 @@ export async function parseCollegeOrgXlsx(buffer: ArrayBuffer): Promise<CollegeO
 export function downloadCollegeOrgTemplate(): void {
   downloadCsv("eventlink-college-organization-template.csv", [
     ["college_name", "program_name", "organization_name", "organization_code"],
-    ["EXAMPLE College of Computing Studies", "EXAMPLE Information Technology", "EXAMPLE ICT Society", "example-ccs-ict"],
-    ["EXAMPLE College of Business", "EXAMPLE Accountancy", "EXAMPLE Junior Philippine Institute of Accountants", "example-cbm-jpia"],
+    ["EXAMPLE College of Computing Studies", "EXAMPLE Information Technology", "EXAMPLE ICT Society", "CCS-IT-ICTS"],
+    ["EXAMPLE College of Business", "EXAMPLE Accountancy", "EXAMPLE Junior Philippine Institute of Accountants", "CB-A-JPIA"],
   ]);
 }
 
@@ -170,7 +195,7 @@ export function validateCollegeOrgImportRows(
     const collegeName = row.collegeName.trim();
     const programName = row.programName.trim();
     const organizationName = row.organizationName.trim();
-    const organizationCode = normalizeOrganizationCode(row.organizationCode);
+    const organizationCode = organizationAcronymCode(collegeName, programName, organizationName);
     const preview: CollegeOrgImportPreviewRow = {
       row: row.row,
       collegeName,
@@ -179,8 +204,8 @@ export function validateCollegeOrgImportRows(
       organizationName,
       organizationCode,
       status: "Valid",
-      message: programName
-        ? `New organization will be created under ${programName}.`
+      message: organizationCode
+        ? `Code ${organizationCode} is the acronym of the college, program, and organization.`
         : "New organization will be created.",
     };
 
@@ -198,11 +223,11 @@ export function validateCollegeOrgImportRows(
       preview.message = "Organization name is required.";
     } else if (!organizationCode) {
       preview.status = "Invalid";
-      preview.message = "Organization code is required.";
+      preview.message = "Could not build an organization code from these names.";
     } else if (collegeName.length > 200 || organizationName.length > 200 || organizationCode.length > 64) {
       preview.status = "Invalid";
       preview.message = "A value is too long.";
-    } else if (organizationCode === "ssc") {
+    } else if (organizationCode.toLowerCase() === "ssc") {
       preview.status = "Invalid";
       preview.message = 'Organization code "ssc" is reserved for the university-wide SSC organization.';
     } else {
@@ -236,7 +261,7 @@ export function validateCollegeOrgImportRows(
             }
           } else {
             const existingBySlug = college.organizations.find(
-              (org) => (org.slug ?? "").trim().toLowerCase() === organizationCode,
+              (org) => (org.slug ?? "").trim().toLowerCase() === organizationCode.toLowerCase(),
             );
             if (existingBySlug) {
               preview.status = "Invalid";

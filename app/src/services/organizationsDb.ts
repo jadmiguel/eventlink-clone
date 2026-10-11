@@ -206,12 +206,12 @@ export async function ensureProgram(collegeId: string, name: string): Promise<st
 export async function assignOrganizationToProgram(
   organizationId: string,
   programId: string,
+  slug?: string,
 ): Promise<void> {
   const supabase = getSupabase();
-  const { error } = await supabase
-    .from("organizations")
-    .update({ program_id: programId })
-    .eq("id", organizationId);
+  const patch: { program_id: string; slug?: string } = { program_id: programId };
+  if (slug?.trim()) patch.slug = slug.trim();
+  const { error } = await supabase.from("organizations").update(patch).eq("id", organizationId);
   if (error) throw error;
 }
 

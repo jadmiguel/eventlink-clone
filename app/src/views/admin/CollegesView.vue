@@ -30,6 +30,7 @@ import {
   downloadCollegeOrgTemplate,
   parseCollegeOrgCsv,
   parseCollegeOrgXlsx,
+  organizationAcronymCode,
   validateCollegeOrgImportRows,
   type CollegeOrgImportPreviewRow,
 } from "@/services/collegeOrgImportParser";
@@ -301,8 +302,11 @@ async function removeProgram(id: string) {
 
 async function addOrganization(collegeId: string, programId: string) {
   if (!newOrgName.value.trim()) return;
+  const college = colleges.value.find((item) => item.id === collegeId);
+  const program = college?.programs.find((item) => item.id === programId);
+  const slug = organizationAcronymCode(college?.name ?? "", program?.name ?? "", newOrgName.value);
   try {
-    await createOrganization(collegeId, newOrgName.value, undefined, programId);
+    await createOrganization(collegeId, newOrgName.value, slug, programId);
     newOrgName.value = "";
     addingOrgFor.value = null;
     await load();
@@ -311,11 +315,15 @@ async function addOrganization(collegeId: string, programId: string) {
   }
 }
 
-async function moveOrganization(organizationId: string) {
+async function moveOrganization(collegeId: string, organizationId: string) {
   const programId = moveTargets.value[organizationId];
   if (!programId) return;
+  const college = colleges.value.find((item) => item.id === collegeId);
+  const program = college?.programs.find((item) => item.id === programId);
+  const org = college?.organizations.find((item) => item.id === organizationId);
+  const slug = organizationAcronymCode(college?.name ?? "", program?.name ?? "", org?.name ?? "");
   try {
-    await assignOrganizationToProgram(organizationId, programId);
+    await assignOrganizationToProgram(organizationId, programId, slug);
     await load();
   } catch (e) {
     window.alert(e instanceof Error ? e.message : String(e));
@@ -346,7 +354,7 @@ async function removeOrg(id: string) {
     <div class="mb-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
       <h3 class="mb-1 font-semibold text-gray-900">College & organization import</h3>
       <p class="mb-4 text-sm text-gray-600">
-        Download the template, fill college, program, and organization, then upload a CSV or XLSX. Example rows are skipped and nothing is saved until you confirm.
+        Download the template, fill college, program, and organization, then upload a CSV or XLSX. The organization code is the acronym of those three names, such as CCS-IT-ICTS. Example rows are skipped and nothing is saved until you confirm.
       </p>
       <input
         ref="fileInput"
@@ -638,6 +646,7 @@ async function removeOrg(id: string) {
               >
                 <div class="min-w-0">
                   <span class="font-medium text-gray-800">{{ org.name }}</span>
+                  <span v-if="org.slug" class="ml-2 font-mono text-xs text-slate-500">{{ org.slug }}</span>
                   <p class="mt-0.5 text-xs text-slate-500">
                     Student Officer:
                     <span class="font-medium text-slate-700">{{ officerLabel(org.id) }}</span>
@@ -685,6 +694,7 @@ async function removeOrg(id: string) {
               >
                 <div class="min-w-0">
                   <span class="font-medium text-gray-800">{{ org.name }}</span>
+                  <span v-if="org.slug" class="ml-2 font-mono text-xs text-slate-500">{{ org.slug }}</span>
                   <p class="mt-0.5 text-xs text-slate-500">
                     Student Officer:
                     <span class="font-medium text-slate-700">{{ officerLabel(org.id) }}</span>
@@ -705,7 +715,7 @@ async function removeOrg(id: string) {
                     type="button"
                     class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                     :disabled="!moveTargets[org.id]"
-                    @click.stop="moveOrganization(org.id)"
+                    @click.stop="moveOrganization(college.id, org.id)"
                   >
                     Assign
                   </button>
